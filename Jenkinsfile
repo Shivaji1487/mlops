@@ -1,4 +1,8 @@
-stage('Start MLflow Tracking Server') {
+pipeline {
+    agent any
+    
+    stages {
+        stage('Start MLflow Tracking Server') {
             steps {
                 echo '🚀 Cleaning older instances and starting MLflow...'
                 sh '''
@@ -10,7 +14,7 @@ stage('Start MLflow Tracking Server') {
                 # वर्कस्पेस के अंदर आर्टिफ़ैक्ट्स डायरेक्टरी सुनिश्चित करें
                 mkdir -p ${WORKSPACE}/mlflow_artifacts
                 
-                # स्पष्ट रूप से Jenkins वर्कस्पेस का पाथ देते हुए
+                # SQLite डेटाबेस को सीधे Jenkins वर्कस्पेस पाथ पर सेट करें
                 nohup mlflow server \
                   --host 0.0.0.0 \
                   --port 5000 \
@@ -28,3 +32,50 @@ stage('Start MLflow Tracking Server') {
                 '''
             }
         }
+
+        stage('Code Quality Check') {
+            steps {
+                echo '🔍 Checking Python Syntax...'
+                sh 'python3 -m py_compile app.py database.py'
+            }
+        }
+        
+        stage('Database Sync') {
+            steps {
+                echo '🔄 Syncing Production Database...'
+                sh 'python3 database.py'
+            }
+        }
+        
+        stage('Dockerize & Run Pipeline') {
+            steps {
+                echo '🏗️ Building Immutable Docker Container...'
+                sh 'docker build -t internal-mlops-engine:latest .'
+                
+                echo '🏃 Running Containerized Model Logic with Host Network...'
+                sh '''
+                HOST_IP=$(hostname -I | awk '{print $1}')
+                echo "🎯 Host IP Detected: ${HOST_IP}"
+                
+                docker run --rm \
+                  --net=host \
+                  -e MLFLOW_TRACKING_URI="http://${HOST_IP}:5000" \
+                  -v $(pwd)/production.db:/app/production.db \
+                  internal-mlops-engine:latest
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo '🧹 Post-Execution Cleanup: Clearing Space...'
+            sh '''
+            docker image rm internal-mlops-engine:latest --force || true
+            docker image prune -f
+            fuser -k 5000/tcp || true
+            '''
+            cleanWs()
+        }
+    }
+}
