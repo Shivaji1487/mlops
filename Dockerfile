@@ -2,8 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install minimal requirements
-RUN pip install --no-cache-dir pandas
+# 🌟 बदलाव यहाँ है: pandas के साथ mlflow भी जोड़ दिया है
+RUN pip install --no-cache-dir pandas mlflow
 
 COPY app.py .
 
