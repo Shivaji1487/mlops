@@ -8,13 +8,11 @@ pipeline {
                 sh '''
                 export PATH=$PATH:/var/lib/jenkins/.local/bin
                 
-                # पोर्ट 5000 को साफ़ करें
-                #fuser -k 5000/tcp || true
+                # पोर्ट 5000 को सिर्फ तभी साफ़ करें जब पुराना अटका हो
+                fuser -k 5000/tcp || true
                 
-                # वर्कस्पेस के अंदर आर्टिफ़ैक्ट्स डायरेक्टरी सुनिश्चित करें
                 mkdir -p ${WORKSPACE}/mlflow_artifacts
                 
-                # SQLite डेटाबेस को सीधे Jenkins वर्कस्पेस पाथ पर सेट करें
                 nohup mlflow server \
                   --host 0.0.0.0 \
                   --port 5000 \
@@ -65,17 +63,25 @@ pipeline {
                 '''
             }
         }
+
+        // 🔥 नया स्टेज: यहाँ पाइपलाइन रुक जाएगी ताकि आप UI चेक कर सकें
+        stage('Hold for MLflow UI Review') {
+            steps {
+                echo '⏸️ Pipeline Paused. Open your laptop browser at http://localhost:8095 to check MLflow UI.'
+                input message: 'क्या आपने MLflow UI चेक कर लिया है और पाइपलाइन पूरी करनी है?', ok: 'हाँ, प्रोसीड करो!'
+            }
+        }
     }
 
     post {
         always {
-            echo '🧹 Post-Execution Cleanup: Clearing Space...'
+            echo '🧹 Post-Execution Cleanup: Only Cleaning Docker Cache...'
             sh '''
             docker image rm internal-mlops-engine:latest --force || true
             docker image prune -f
-            fuser -k 5000/tcp || true
             '''
-            cleanWs()
+            // ध्यान दें: हमने यहाँ से cleanWs() और fuser -k हटा दिया है 
+            // ताकि आपका MLflow डेटाबेस और सर्वर आपके पॉज रहने तक चालू रहे।
         }
     }
 }
