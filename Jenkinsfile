@@ -1,29 +1,31 @@
 pipeline {
     agent any
     
-    // (समझने के लिए कमेंट) यहाँ से स्टेजेस शुरू हो रही हैं
     stages {
         stage('Start MLflow Tracking Server') {
             steps {
-                echo '🚀 Starting MLflow Tracking Server properly...'
+                echo '🚀 Cleaning older instances and starting MLflow...'
                 sh '''
-                # 1. Jenkins को बैकग्राउंड प्रोसेस किल करने से रोकें
-                export JENKINS_NODE_COOKIE=dontKillMe
-
-                # पाथ को सेफ साइड रखने के लिए जोड़ रहे हैं
                 export PATH=$PATH:/var/lib/jenkins/.local/bin
                 
-                # 2. पोर्ट 5000 पर पुराने अटके प्रोसेस को साफ़ करें
+                # पोर्ट 5000 को पूरी तरह साफ़ करें
                 fuser -k 5000/tcp || true
                 
-                # 3. MLflow सर्वर को बैकग्राउंड में शुरू करें
+                # डायरेक्टरी मौजूद होना सुनिश्चित करें
+                mkdir -p /tmp/artifacts
+                
+                # बैकग्राउंड में शुरू करने के बाद उसका PID सेव करें
                 nohup mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///tmp/mlflow.db --default-artifact-root /tmp/artifacts > mlflow_server.log 2>&1 &
                 
-                # 4. सर्वर को शुरू होने के लिए पर्याप्त (7 सेकंड) का समय दें
-                sleep 7
+                sleep 5
                 
-                # 5. चेक करें कि बैकग्राउंड में सर्वर एक्टिव है या नहीं (डीबगिंग के लिए)
-                curl -I http://127.0.0.1:5000 || echo "⚠️ MLflow server might still be starting..."
+                # अगर सर्वर क्रैश हुआ होगा, तो यहाँ लॉग प्रिंट हो जाएंगे
+                if ! text=$(curl -sI http://127.0.0.1:5000); then
+                    echo "❌ MLflow Server failed to start! Printing logs:"
+                    cat mlflow_server.log
+                    exit 1
+                fi
+                echo "✅ MLflow server is successfully up and running!"
                 '''
             }
         }
@@ -47,10 +49,18 @@ pipeline {
                 echo '🏗️ Building Immutable Docker Container...'
                 sh 'docker build -t internal-mlops-engine:latest .'
                 
-                echo '🏃 Running Containerized Model Logic...'
+                echo '🏃 Running Containerized Model Logic with Host Network...'
                 sh '''
-                # होस्ट के नेटवर्क स्टैक का उपयोग करने के लिए --net=host लगाया है
-                docker run --rm --net=host -v $(pwd)/production.db:/app/production.db internal-mlops-engine:latest
+                # होस्ट मशीन का असली IP एड्रेस निकालें ताकि कंटेनर भ्रमित न हो
+                HOST_IP=$(hostname -I | awk '{print $1}')
+                echo "🎯 Host IP Detected: ${HOST_IP}"
+                
+                # कंटेनर चलाते समय MLFLOW_TRACKING_URI एनवायरनमेंट वेरिएबल के रूप में पास करें
+                docker run --rm \
+                  --net=host \
+                  -e MLFLOW_TRACKING_URI="http://${HOST_IP}:5000" \
+                  -v $(pwd)/production.db:/app/production.db \
+                  internal-mlops-engine:latest
                 '''
             }
         }
@@ -60,9 +70,9 @@ pipeline {
         always {
             echo '🧹 Post-Execution Cleanup: Clearing Space...'
             sh '''
-            # पुराना कंटेनर इमेज और कैशे साफ़ करें
             docker image rm internal-mlops-engine:latest --force || true
             docker image prune -f
+            fuser -k 5000/tcp || true
             '''
             cleanWs()
         }

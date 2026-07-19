@@ -1,8 +1,11 @@
 import sqlite3
 import pandas as pd
 import mlflow
+import os
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
+tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
+mlflow.set_tracking_uri(tracking_uri)
+
 mlflow.set_experiment("Production_Customer_Tiering")
 
 def evaluate_customer_tier(row):
