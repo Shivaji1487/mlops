@@ -4,11 +4,11 @@ pipeline {
     stages {
         stage('Start MLflow Tracking Server') {
             steps {
-                echo '🚀 Cleaning older instances and starting MLflow...'
+                echo '🚀 Starting MLflow Server...'
                 sh '''
                 export PATH=$PATH:/var/lib/jenkins/.local/bin
                 
-                # पोर्ट 5000 को सिर्फ तभी साफ़ करें जब पुराना अटका हो
+                # पुराना कोई अटका हो तो साफ़ करें
                 fuser -k 5000/tcp || true
                 
                 mkdir -p ${WORKSPACE}/mlflow_artifacts
@@ -19,41 +19,25 @@ pipeline {
                   --backend-store-uri sqlite:///${WORKSPACE}/mlflow.db \
                   --default-artifact-root ${WORKSPACE}/mlflow_artifacts > mlflow_server.log 2>&1 &
                 
-                sleep 7
-                
-                if ! curl -sI http://127.0.0.1:5000; then
-                    echo "❌ MLflow Server failed to start! Printing logs:"
-                    cat mlflow_server.log
-                    exit 1
-                fi
-                echo "✅ MLflow server is successfully up and running!"
+                sleep 5
                 '''
             }
         }
 
-        stage('Code Quality Check') {
+        stage('Code Quality & DB Sync') {
             steps {
-                echo '🔍 Checking Python Syntax...'
-                sh 'python3 -m py_compile app.py database.py'
-            }
-        }
-        
-        stage('Database Sync') {
-            steps {
-                echo '🔄 Syncing Production Database...'
-                sh 'python3 database.py'
-            }
-        }
-        
-        stage('Dockerize & Run Pipeline') {
-            steps {
-                echo '🏗️ Building Immutable Docker Container...'
-                sh 'docker build -t internal-mlops-engine:latest .'
-                
-                echo '🏃 Running Containerized Model Logic with Host Network...'
                 sh '''
+                python3 -m py_compile app.py database.py
+                python3 database.py
+                '''
+            }
+        }
+        
+        stage('Dockerize & Run MLOps Engine') {
+            steps {
+                sh '''
+                docker build -t internal-mlops-engine:latest .
                 HOST_IP=$(hostname -I | awk '{print $1}')
-                echo "🎯 Host IP Detected: ${HOST_IP}"
                 
                 docker run --rm \
                   --net=host \
@@ -64,24 +48,31 @@ pipeline {
             }
         }
 
-        // 🔥 नया स्टेज: यहाँ पाइपलाइन रुक जाएगी ताकि आप UI चेक कर सकें
-        stage('Hold for MLflow UI Review') {
+        // ⏱️ यह स्टेज पाइपलाइन को लाइव रखेगा ताकि आप ब्राउज़र देख सकें
+        stage('Keep Alive for UI Review') {
             steps {
-                echo '⏸️ Pipeline Paused. Open your laptop browser at http://localhost:8095 to check MLflow UI.'
-                input message: 'क्या आपने MLflow UI चेक कर लिया है और पाइपलाइन पूरी करनी है?', ok: 'हाँ, प्रोसीड करो!'
+                echo '⏱️ Pipeline is keeping MLflow alive for 2 minutes...'
+                echo '👉 Open laptop terminal: ssh -L 8095:127.0.0.1:5000 jenkins@192.168.235.130'
+                echo '👉 Open Browser: http://localhost:8095'
+                
+                // 120 सेकंड (2 मिनट) तक यह स्टेज चलता रहेगा, फिर अपने आप आगे बढ़ेगा
+                sleep time: 600, unit: 'SECONDS'
             }
         }
     }
 
     post {
         always {
-            echo '🧹 Post-Execution Cleanup: Only Cleaning Docker Cache...'
+            echo '🧹 Cleaning up everything automatically...'
             sh '''
+            # Docker साफ़ करें
             docker image rm internal-mlops-engine:latest --force || true
             docker image prune -f
+            
+            # MLflow सर्वर को अपने आप बंद करें
+            fuser -k 5000/tcp || true
             '''
-            // ध्यान दें: हमने यहाँ से cleanWs() और fuser -k हटा दिया है 
-            // ताकि आपका MLflow डेटाबेस और सर्वर आपके पॉज रहने तक चालू रहे।
+            cleanWs()
         }
     }
 }
