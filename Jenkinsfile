@@ -1,6 +1,7 @@
 pipeline {
     agent any
-
+    
+    // (समझने के लिए कमेंट) यहाँ से स्टेजेस शुरू हो रही हैं
     stages {
         stage('Start MLflow Tracking Server') {
             steps {
@@ -8,14 +9,14 @@ pipeline {
                 sh '''
                 # 1. Jenkins को बैकग्राउंड प्रोसेस किल करने से रोकें
                 export JENKINS_NODE_COOKIE=dontKillMe
-                
-                # अगर आपके यूजर प्रोफाइल में पाथ पहले से जुड़ा है तो ठीक, नहीं तो इसे सेफ साइड रखें
+
+                # पाथ को सेफ साइड रखने के लिए जोड़ रहे हैं
                 export PATH=$PATH:/var/lib/jenkins/.local/bin
                 
                 # 2. पोर्ट 5000 पर पुराने अटके प्रोसेस को साफ़ करें
                 fuser -k 5000/tcp || true
                 
-                # 3. MLflow सर्वर को शुरू करें
+                # 3. MLflow सर्वर को बैकग्राउंड में शुरू करें
                 nohup mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///tmp/mlflow.db --default-artifact-root /tmp/artifacts > mlflow_server.log 2>&1 &
                 
                 # 4. सर्वर को शुरू होने के लिए पर्याप्त (7 सेकंड) का समय दें
@@ -47,8 +48,10 @@ pipeline {
                 sh 'docker build -t internal-mlops-engine:latest .'
                 
                 echo '🏃 Running Containerized Model Logic...'
-                # --net=host मोड होस्ट के नेटवर्क स्टैक का उपयोग करता है
-                sh 'docker run --rm --net=host -v $(pwd)/production.db:/app/production.db internal-mlops-engine:latest'
+                sh '''
+                # होस्ट के नेटवर्क स्टैक का उपयोग करने के लिए --net=host लगाया है
+                docker run --rm --net=host -v $(pwd)/production.db:/app/production.db internal-mlops-engine:latest
+                '''
             }
         }
     }
@@ -56,12 +59,11 @@ pipeline {
     post {
         always {
             echo '🧹 Post-Execution Cleanup: Clearing Space...'
-            sh 'docker image rm internal-mlops-engine:latest --force || true'
-            sh 'docker image prune -f'
-            
-            # (ऑप्शनल) अगर आप पाइपलाइन खत्म होने के बाद MLflow बंद करना चाहते हैं तो:
-            # sh 'fuser -k 5000/tcp || true'
-            
+            sh '''
+            # पुराना कंटेनर इमेज और कैशे साफ़ करें
+            docker image rm internal-mlops-engine:latest --force || true
+            docker image prune -f
+            '''
             cleanWs()
         }
     }
