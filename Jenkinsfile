@@ -9,7 +9,7 @@ pipeline {
                 export PATH=$PATH:/var/lib/jenkins/.local/bin
                 
                 # पोर्ट 5000 को साफ़ करें
-                fuser -k 5000/tcp || true
+                #fuser -k 5000/tcp || true
                 
                 # वर्कस्पेस के अंदर आर्टिफ़ैक्ट्स डायरेक्टरी सुनिश्चित करें
                 mkdir -p ${WORKSPACE}/mlflow_artifacts
