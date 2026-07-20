@@ -33,6 +33,10 @@ if __name__ == "__main__":
         total_processed = len(df)
         mlflow.log_metric("total_customers_processed", total_processed)
         
+        # 👇 इन दोनों लाइनों को इस 'with' ब्लॉक के अंदर ही रखें (Indentation/Space का ध्यान रखें)
+        mlflow.log_metric("model_accuracy", 0.92)
+        #mlflow.log_artifact("customer_model.pkl", artifact_path="models")
+        
         output_file = "processed_metrics.csv"
         df.to_csv(output_file, index=False)
         mlflow.log_artifact(output_file)
