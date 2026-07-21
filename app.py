@@ -35,21 +35,31 @@ if __name__ == "__main__":
             "client_kwargs": {"endpoint_url": MINIO_ENDPOINT}
         }
 
-        # 📥 Read CSV from MinIO
+        # 1. 📥 Read CSV from MinIO
         input_s3_path = f"s3://{BUCKET_NAME}/customer_data.csv"
         df = pd.read_csv(input_s3_path, storage_options=storage_opts)
 
-        # ⚙️ Apply Business Logic
+        # 2. ⚙️ Apply Business Logic
         df['Tier'] = df.apply(evaluate_customer_tier, axis=1)
 
-        # 📤 Save Processed Data back to MinIO
+        # 3. 📤 Save Processed Data back to MinIO Data Lake
         output_s3_path = f"s3://{BUCKET_NAME}/processed_customer_data.csv"
         df.to_csv(output_s3_path, index=False, storage_options=storage_opts)
 
-        # 📊 MLflow Logging
+        # 4. 📁 MLFLOW ARTIFACT LOGGING (Yeh line UI me dikhayegi!)
+        local_output = "processed_customer_data.csv"
+        df.to_csv(local_output, index=False)
+        mlflow.log_artifact(local_output, artifact_path="results")  # <-- THIS LOGS TO MLFLOW UI
+
+        # Clean local temporary file
+        if os.path.exists(local_output):
+            os.remove(local_output)
+
+        # 5. 📊 Metrics & Params Logging
         total_processed = len(df)
         mlflow.log_param("data_source", input_s3_path)
+        mlflow.log_param("data_destination", output_s3_path)
         mlflow.log_metric("total_customers_processed", total_processed)
         mlflow.log_metric("model_accuracy", 0.95)
 
-        print(f"🔥 Successfully processed {total_processed} customer records from MinIO!")
+        print(f"🔥 Successfully processed {total_processed} customer records & logged to MLflow Artifacts!")
