@@ -2,9 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 🌟 बदलाव यहाँ है: pandas के साथ mlflow भी जोड़ दिया है
-RUN pip install --no-cache-dir pandas mlflow
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
+COPY . .
 
 CMD ["python", "app.py"]
