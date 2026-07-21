@@ -56,7 +56,7 @@ pipeline {
                 echo '👉 Open Browser: http://localhost:8095'
                 
                 // 120 सेकंड (2 मिनट) तक यह स्टेज चलता रहेगा, फिर अपने आप आगे बढ़ेगा
-                sleep time: 600, unit: 'SECONDS'
+                sleep time: 3600, unit: 'SECONDS'
             }
         }
     }
