@@ -6,21 +6,24 @@ pipeline {
             steps {
                 echo '🚀 Starting MLflow Server...'
                 sh '''
-                export PATH=$PATH:/var/lib/jenkins/.local/bin
-                
-                # पुराना कोई अटका हो तो साफ़ करें
-                fuser -k 5000/tcp || true
-                
-                mkdir -p ${WORKSPACE}/mlflow_artifacts
-                
-                nohup mlflow server \
-                  --host 0.0.0.0 \
-                  --port 5000 \
-                  --backend-store-uri sqlite:///${WORKSPACE}/mlflow.db \
-                  --default-artifact-root ${WORKSPACE}/mlflow_artifacts > mlflow_server.log 2>&1 &
-                
-                sleep 5
-                '''
+					export PATH=$PATH:/var/lib/jenkins/.local/bin
+					fuser -k 5000/tcp || true
+					
+					# Set MinIO Credentials so MLflow Server can access it
+					export AWS_ACCESS_KEY_ID="minioadmin"
+					export AWS_SECRET_ACCESS_KEY="minioadmin"
+					export MLFLOW_S3_ENDPOINT_URL="http://192.168.235.130:9000"
+		
+					# Pass MinIO S3 bucket path as default-artifact-root
+					nohup mlflow server \
+					--host 0.0.0.0 \
+					--port 5000 \
+					--backend-store-uri sqlite:////var/lib/jenkins/workspace/mlops-pipeline/mlflow.db \
+					--default-artifact-root s3://customer-data-lake/mlflow-artifacts \
+					> mlflow.log 2>&1 &
+					
+					sleep 5
+			'''
             }
         }
 
