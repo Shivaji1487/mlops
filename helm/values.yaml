@@ -1,0 +1,25 @@
+replicaCount: 2
+
+image:
+  repository: sshivaji555/customer-tiering-mlops
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: NodePort
+  port: 8000
+  nodePort: 30800
+
+env:
+  MLFLOW_TRACKING_URI: "http://192.168.235.130:5000"
+  AWS_ACCESS_KEY_ID: "minioadmin"
+  AWS_SECRET_ACCESS_KEY: "minioadmin"
+  MLFLOW_S3_ENDPOINT_URL: "http://192.168.235.130:9000"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi

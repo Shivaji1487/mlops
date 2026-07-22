@@ -1,81 +1,82 @@
 pipeline {
     agent any
-    
-    stages {
-        stage('Start MLflow Tracking Server') {
-            steps {
-                echo '🚀 Starting MLflow Server...'
-                sh '''
-					export PATH=$PATH:/var/lib/jenkins/.local/bin
-					fuser -k 5000/tcp || true
-					
-					# Set MinIO Credentials so MLflow Server can access it
-					export AWS_ACCESS_KEY_ID="minioadmin"
-					export AWS_SECRET_ACCESS_KEY="minioadmin"
-					export MLFLOW_S3_ENDPOINT_URL="http://192.168.235.130:9000"
-		
-					# Pass MinIO S3 bucket path as default-artifact-root
-					nohup mlflow server \
-					--host 0.0.0.0 \
-					--port 5000 \
-					--backend-store-uri sqlite:////var/lib/jenkins/workspace/mlops-pipeline/mlflow.db \
-					--default-artifact-root s3://customer-data-lake/mlflow-artifacts \
-					> mlflow.log 2>&1 &
-					
-					sleep 5
-			'''
-            }
-        }
 
-        stage('Code Quality & DB Sync') {
-            steps {
-                sh '''
-                python3 -m py_compile app.py database.py
-                python3 database.py
-                '''
-            }
-        }
+    environment {
+        IMAGE_NAME            = "sshivaji555/customer-tiering-mlops:latest"
+        GIT_URL               = "https://github.com/Shivaji1487/mlops-customer-tiering.git"
+        MINIO_ENDPOINT        = "http://192.168.235.130:9000"
+        MLFLOW_TRACKING_URI   = "http://192.168.235.130:5000"
+        AWS_ACCESS_KEY_ID     = "minioadmin"
+        AWS_SECRET_ACCESS_KEY = "minioadmin"
         
-        stage('Dockerize & Run MLOps Engine') {
+        NAMESPACE             = "mlops-prod"
+        RELEASE               = "customer-tiering-release"
+    }
+
+    stages {
+        stage('1. Checkout Code') {
             steps {
-                sh '''
-                docker build -t internal-mlops-engine:latest .
-                HOST_IP=$(hostname -I | awk '{print $1}')
-                
-                docker run --rm \
-                  --net=host \
-                  -e MLFLOW_TRACKING_URI="http://${HOST_IP}:5000" \
-                  -v $(pwd)/production.db:/app/production.db \
-                  internal-mlops-engine:latest
-                '''
+                git branch: 'main', url: "${GIT_URL}"
             }
         }
 
-        // ⏱️ यह स्टेज पाइपलाइन को लाइव रखेगा ताकि आप ब्राउज़र देख सकें
-        stage('Keep Alive for UI Review') {
+        stage('2. Execute Data & ML Pipeline') {
             steps {
-                echo '⏱️ Pipeline is keeping MLflow alive for 2 minutes...'
-                echo '👉 Open laptop terminal: ssh -L 8095:127.0.0.1:5000 jenkins@192.168.235.130'
-                echo '👉 Open Browser: http://localhost:8095'
-                
-                // 120 सेकंड (2 मिनट) तक यह स्टेज चलता रहेगा, फिर अपने आप आगे बढ़ेगा
-                sleep time: 7200, unit: 'SECONDS'
+                script {
+                    sh '''
+                        python3 -m venv venv
+                        . venv/bin/activate
+                        pip install --upgrade pip
+                        pip install -r requirements.txt
+                        python app.py
+                    '''
+                }
+            }
+        }
+
+        stage('3. Build & Trivy Security Scan') {
+            steps {
+                script {
+                    sh "docker build -t ${IMAGE_NAME} ."
+                    sh "trivy image --vuln-type os --severity HIGH,CRITICAL ${IMAGE_NAME} || true"
+                }
+            }
+        }
+
+        stage('4. Push Image to DockerHub') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'U', passwordVariable: 'P')]) {
+                    sh """
+                        echo '$P' | docker login -u '$U' --password-stdin
+                        docker push ${IMAGE_NAME}
+                        docker logout
+                    """
+                }
+            }
+        }
+
+        stage('5. Helm Deploy to Kubernetes') {
+            steps {
+                script {
+                    sh "helm upgrade --install ${RELEASE} ./helm --namespace ${NAMESPACE} --create-namespace"
+                    sh "kubectl get pods,svc -n ${NAMESPACE}"
+                }
             }
         }
     }
 
     post {
+        success {
+            echo "✅ Pipeline Executed Successfully! Deployed via Helm to ${NAMESPACE}."
+        }
+        failure {
+            echo "❌ Pipeline Failed! Check build logs."
+        }
         always {
-            echo '🧹 Cleaning up everything automatically...'
-            sh '''
-            # Docker साफ़ करें
-            docker image rm internal-mlops-engine:latest --force || true
-            docker image prune -f
-            
-            # MLflow सर्वर को अपने आप बंद करें
-            fuser -k 5000/tcp || true
-            '''
-            cleanWs()
+            script {
+                sh "docker rmi ${IMAGE_NAME} || true"
+                sh "rm -rf venv"
+            }
         }
     }
 }

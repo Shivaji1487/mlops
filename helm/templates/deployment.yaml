@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-deployment
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "{{ .Values.env.MLFLOW_TRACKING_URI }}"
+            - name: AWS_ACCESS_KEY_ID
+              value: "{{ .Values.env.AWS_ACCESS_KEY_ID }}"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "{{ .Values.env.AWS_SECRET_ACCESS_KEY }}"
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: "{{ .Values.env.MLFLOW_S3_ENDPOINT_URL }}"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
