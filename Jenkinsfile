@@ -3,7 +3,8 @@ pipeline {
 
     environment {
         IMAGE_NAME            = "sshivaji555/customer-tiering-mlops:latest"
-        GIT_URL               = "https://github.com/Shivaji1487/mlops-customer-tiering.git"
+        
+        // MLflow & MinIO Configurations
         MINIO_ENDPOINT        = "http://192.168.235.130:9000"
         MLFLOW_TRACKING_URI   = "http://192.168.235.130:5000"
         AWS_ACCESS_KEY_ID     = "minioadmin"
@@ -16,7 +17,8 @@ pipeline {
     stages {
         stage('1. Checkout Code') {
             steps {
-                git branch: 'main', url: "${GIT_URL}"
+                // Uses Jenkins' built-in SCM credentials automatically
+                checkout scm
             }
         }
 
