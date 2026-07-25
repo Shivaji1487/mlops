@@ -16,20 +16,25 @@ os.environ["MLFLOW_S3_ENDPOINT_URL"] = MINIO_ENDPOINT
 mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://192.168.235.130:5000"))
 mlflow.set_experiment("Production_Customer_Tiering")
 
+# 🔍 1. Add Trace to Evaluation Function
+@mlflow.trace(name="evaluate_customer_tier")
+def evaluate_row(row):
+    auto_renew = True if str(row['Auto Renew']).strip().lower() == 'yes' else False
+    subs = row['Subscription Count']
+    term = str(row['Subscription Term']).strip().lower()
+    if (auto_renew and subs >= 25) or subs > 35:
+        return "Elite"
+    elif term == 'yearly' or subs >= 15:
+        return "Pro+"
+    return "Normal"
+
+
 class CustomerTieringModel(mlflow.pyfunc.PythonModel):
+    # 🔍 2. Add Trace to Model Prediction Engine
+    @mlflow.trace(name="customer_tier_prediction_pipeline")
     def predict(self, context, model_input):
         df = model_input.copy()
-        def evaluate(row):
-            auto_renew = True if str(row['Auto Renew']).strip().lower() == 'yes' else False
-            subs = row['Subscription Count']
-            term = str(row['Subscription Term']).strip().lower()
-            if (auto_renew and subs >= 25) or subs > 35:
-                return "Elite"
-            elif term == 'yearly' or subs >= 15:
-                return "Pro+"
-            return "Normal"
-            
-        df['Predicted_Tier'] = df.apply(evaluate, axis=1)
+        df['Predicted_Tier'] = df.apply(evaluate_row, axis=1)
         return df['Predicted_Tier']
 
 if __name__ == "__main__":
@@ -49,11 +54,11 @@ if __name__ == "__main__":
     signature = infer_signature(X, predictions)
 
     with mlflow.start_run(run_name="Jenkins_MinIO_Training_Run"):
-        # 1. Model Parameters Logging
+        # Parameters
         mlflow.log_param("dataset_source", s3_path)
         mlflow.log_param("features_list", list(X.columns))
 
-        # 2. Pure Model Metrics Logging
+        # Metrics
         tier_counts = predictions.value_counts()
         total_records = len(df)
         
@@ -61,16 +66,12 @@ if __name__ == "__main__":
         mlflow.log_metric("elite_tier_count", float(tier_counts.get("Elite", 0)))
         mlflow.log_metric("pro_plus_tier_count", float(tier_counts.get("Pro+", 0)))
         mlflow.log_metric("normal_tier_count", float(tier_counts.get("Normal", 0)))
-        
-        # Percentage distribution of tiers
-        mlflow.log_metric("elite_tier_ratio", float(tier_counts.get("Elite", 0) / total_records))
-        mlflow.log_metric("pro_plus_tier_ratio", float(tier_counts.get("Pro+", 0) / total_records))
 
-        # 3. Log Model Artifact & Register
+        # Log & Register
         mlflow.pyfunc.log_model(
             artifact_path="customer_tier_model",
             python_model=model,
             signature=signature,
             registered_model_name="CustomerTieringModel"
         )
-        print("✅ Model trained & Model-related metrics logged successfully!")
+        print("✅ Training complete with Traces captured!")
