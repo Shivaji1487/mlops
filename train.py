@@ -3,9 +3,11 @@ import pandas as pd
 import mlflow
 import mlflow.pyfunc
 from mlflow.models.signature import infer_signature
-from sklearn.metrics import accuracy_score
 
-# 1. Environment & MLflow Setup
+# ⚡ CHANGE 1: Enable System Metrics (CPU, Memory Logging)
+mlflow.enable_system_metrics_logging()
+
+# Config & S3 Setup
 MINIO_ENDPOINT = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://192.168.235.130:9000")
 AWS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
 AWS_SECRET = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
@@ -17,8 +19,6 @@ os.environ["MLFLOW_S3_ENDPOINT_URL"] = MINIO_ENDPOINT
 mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://192.168.235.130:5000"))
 mlflow.set_experiment("Production_Customer_Tiering")
 
-
-# 2. Define Model Logic
 class CustomerTieringModel(mlflow.pyfunc.PythonModel):
     def predict(self, context, model_input):
         df = model_input.copy()
@@ -35,8 +35,6 @@ class CustomerTieringModel(mlflow.pyfunc.PythonModel):
         df['Predicted_Tier'] = df.apply(evaluate, axis=1)
         return df['Predicted_Tier']
 
-
-# 3. Execution Pipeline
 if __name__ == "__main__":
     print("📥 Reading 'customer_data.csv' from MinIO S3 bucket...")
     s3_path = "s3://cust-tier/customer_data.csv"
@@ -54,18 +52,26 @@ if __name__ == "__main__":
     signature = infer_signature(X, predictions)
 
     with mlflow.start_run(run_name="Jenkins_MinIO_Training_Run"):
+        # Log Parameters
         mlflow.log_param("dataset_source", s3_path)
         mlflow.log_param("total_records_processed", len(df))
 
-        if 'Actual_Tier' in df.columns:
-            acc = accuracy_score(df['Actual_Tier'], predictions)
-            mlflow.log_metric("accuracy", acc)
-            print(f"📊 Training Accuracy: {acc * 100}%")
+        # ⚡ CHANGE 2: Direct Metric Logging (No dependence on 'Actual_Tier')
+        tier_counts = predictions.value_counts()
+        
+        # Total processed rows metric
+        mlflow.log_metric("total_customers_processed", float(len(df)))
+        
+        # Tier wise distribution metrics
+        mlflow.log_metric("elite_tier_count", float(tier_counts.get("Elite", 0)))
+        mlflow.log_metric("pro_plus_tier_count", float(tier_counts.get("Pro+", 0)))
+        mlflow.log_metric("normal_tier_count", float(tier_counts.get("Normal", 0)))
 
+        # Log Model & Register
         mlflow.pyfunc.log_model(
             artifact_path="customer_tier_model",
             python_model=model,
             signature=signature,
             registered_model_name="CustomerTieringModel"
         )
-        print("✅ Model trained & registered successfully in MLflow Registry!")
+        print("✅ Model trained, metrics logged & registered successfully in MLflow Registry!")
