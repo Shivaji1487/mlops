@@ -4,9 +4,6 @@ import mlflow
 import mlflow.pyfunc
 from mlflow.models.signature import infer_signature
 
-# ⚡ CHANGE 1: Enable System Metrics (CPU, Memory Logging)
-mlflow.enable_system_metrics_logging()
-
 # Config & S3 Setup
 MINIO_ENDPOINT = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://192.168.235.130:9000")
 AWS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
@@ -52,26 +49,28 @@ if __name__ == "__main__":
     signature = infer_signature(X, predictions)
 
     with mlflow.start_run(run_name="Jenkins_MinIO_Training_Run"):
-        # Log Parameters
+        # 1. Model Parameters Logging
         mlflow.log_param("dataset_source", s3_path)
-        mlflow.log_param("total_records_processed", len(df))
+        mlflow.log_param("features_list", list(X.columns))
 
-        # ⚡ CHANGE 2: Direct Metric Logging (No dependence on 'Actual_Tier')
+        # 2. Pure Model Metrics Logging
         tier_counts = predictions.value_counts()
+        total_records = len(df)
         
-        # Total processed rows metric
-        mlflow.log_metric("total_customers_processed", float(len(df)))
-        
-        # Tier wise distribution metrics
+        mlflow.log_metric("total_customers_processed", float(total_records))
         mlflow.log_metric("elite_tier_count", float(tier_counts.get("Elite", 0)))
         mlflow.log_metric("pro_plus_tier_count", float(tier_counts.get("Pro+", 0)))
         mlflow.log_metric("normal_tier_count", float(tier_counts.get("Normal", 0)))
+        
+        # Percentage distribution of tiers
+        mlflow.log_metric("elite_tier_ratio", float(tier_counts.get("Elite", 0) / total_records))
+        mlflow.log_metric("pro_plus_tier_ratio", float(tier_counts.get("Pro+", 0) / total_records))
 
-        # Log Model & Register
+        # 3. Log Model Artifact & Register
         mlflow.pyfunc.log_model(
             artifact_path="customer_tier_model",
             python_model=model,
             signature=signature,
             registered_model_name="CustomerTieringModel"
         )
-        print("✅ Model trained, metrics logged & registered successfully in MLflow Registry!")
+        print("✅ Model trained & Model-related metrics logged successfully!")
