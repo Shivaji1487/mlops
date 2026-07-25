@@ -2,19 +2,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install git binary to suppress MLflow git warnings completely
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
+# Environment variables to prevent buffer lag in logs
+ENV PYTHONUNBUFFERED=1
 
+# Copy & install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy ONLY the serving script into the runtime container
+COPY serve.py .
 
-# Environment flag for GitPython
-ENV GIT_PYTHON_REFRESH=quiet
-
-# Expose API Port
 EXPOSE 8000
 
-CMD ["python", "app.py"]
+# Container runs the continuous FastAPI inference server
+CMD ["python", "serve.py"]
