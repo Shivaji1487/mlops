@@ -2,9 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install git binary to suppress MLflow git warnings completely
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+# Environment flag for GitPython
+ENV GIT_PYTHON_REFRESH=quiet
+
+# Expose API Port
+EXPOSE 8000
 
 CMD ["python", "app.py"]
