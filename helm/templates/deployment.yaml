@@ -21,13 +21,6 @@ spec:
           ports:
             - containerPort: {{ .Values.service.port }}
           env:
-            - name: MLFLOW_TRACKING_URI
-              value: "{{ .Values.env.MLFLOW_TRACKING_URI }}"
-            - name: AWS_ACCESS_KEY_ID
-              value: "{{ .Values.env.AWS_ACCESS_KEY_ID }}"
-            - name: AWS_SECRET_ACCESS_KEY
-              value: "{{ .Values.env.AWS_SECRET_ACCESS_KEY }}"
-            - name: MLFLOW_S3_ENDPOINT_URL
-              value: "{{ .Values.env.MLFLOW_S3_ENDPOINT_URL }}"
+            {{- toYaml .Values.env | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
