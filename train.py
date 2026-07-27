@@ -16,7 +16,28 @@ os.environ["MLFLOW_S3_ENDPOINT_URL"] = MINIO_ENDPOINT
 mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://192.168.235.130:5000"))
 mlflow.set_experiment("Production_Customer_Tiering")
 
-# 🔍 1. Add Trace to Evaluation Function
+
+# 🛡️ INDUSTRY STEP: Simple & Effective Data Validation
+def validate_data(df: pd.DataFrame):
+    print("🔍 Starting Data Validation Checks...")
+    
+    # 1. Schema / Column Check
+    required_cols = {'Auto Renew', 'Subscription Count', 'Subscription Term'}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        raise ValueError(f"❌ Data Validation Failed: Missing columns {missing_cols}")
+        
+    # 2. Null Value Check
+    if df[list(required_cols)].isnull().any().any():
+        raise ValueError("❌ Data Validation Failed: Found NULL values in required features")
+        
+    # 3. Data Integrity Check (Negative values check)
+    if (df['Subscription Count'] < 0).any():
+        raise ValueError("❌ Data Validation Failed: 'Subscription Count' cannot be negative")
+
+    print("✅ Data Validation Passed Successfully!")
+
+
 @mlflow.trace(name="evaluate_customer_tier")
 def evaluate_row(row):
     auto_renew = True if str(row['Auto Renew']).strip().lower() == 'yes' else False
@@ -30,12 +51,12 @@ def evaluate_row(row):
 
 
 class CustomerTieringModel(mlflow.pyfunc.PythonModel):
-    # 🔍 2. Add Trace to Model Prediction Engine
     @mlflow.trace(name="customer_tier_prediction_pipeline")
     def predict(self, context, model_input):
         df = model_input.copy()
         df['Predicted_Tier'] = df.apply(evaluate_row, axis=1)
         return df['Predicted_Tier']
+
 
 if __name__ == "__main__":
     print("📥 Reading 'customer_data.csv' from MinIO S3 bucket...")
@@ -47,6 +68,10 @@ if __name__ == "__main__":
     }
     
     df = pd.read_csv(s3_path, storage_options=storage_options)
+    
+    # 🛡️ RUN DATA VALIDATION BEFORE TRAINING
+    validate_data(df)
+
     X = df[['Auto Renew', 'Subscription Count', 'Subscription Term']]
 
     model = CustomerTieringModel()
@@ -74,4 +99,4 @@ if __name__ == "__main__":
             signature=signature,
             registered_model_name="CustomerTieringModel"
         )
-        print("✅ Training complete with Traces captured!")
+        print("✅ Training complete with Data Validation & Traces captured!")
