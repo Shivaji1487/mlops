@@ -3,6 +3,8 @@ import pandas as pd
 import mlflow
 import mlflow.pyfunc
 from mlflow.models.signature import infer_signature
+from sklearn.metrics import accuracy_score  # 1. Metric import karein
+from validate import validate_data
 
 # Config & S3 Setup
 MINIO_ENDPOINT = os.getenv("MLFLOW_S3_ENDPOINT_URL", "http://192.168.235.130:9000")
@@ -15,27 +17,6 @@ os.environ["MLFLOW_S3_ENDPOINT_URL"] = MINIO_ENDPOINT
 
 mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://192.168.235.130:5000"))
 mlflow.set_experiment("Production_Customer_Tiering")
-
-
-# 🛡️ INDUSTRY STEP: Simple & Effective Data Validation
-def validate_data(df: pd.DataFrame):
-    print("🔍 Starting Data Validation Checks...")
-    
-    # 1. Schema / Column Check
-    required_cols = {'Auto Renew', 'Subscription Count', 'Subscription Term'}
-    missing_cols = required_cols - set(df.columns)
-    if missing_cols:
-        raise ValueError(f"❌ Data Validation Failed: Missing columns {missing_cols}")
-        
-    # 2. Null Value Check
-    if df[list(required_cols)].isnull().any().any():
-        raise ValueError("❌ Data Validation Failed: Found NULL values in required features")
-        
-    # 3. Data Integrity Check (Negative values check)
-    if (df['Subscription Count'] < 0).any():
-        raise ValueError("❌ Data Validation Failed: 'Subscription Count' cannot be negative")
-
-    print("✅ Data Validation Passed Successfully!")
 
 
 @mlflow.trace(name="evaluate_customer_tier")
@@ -69,7 +50,7 @@ if __name__ == "__main__":
     
     df = pd.read_csv(s3_path, storage_options=storage_options)
     
-    # 🛡️ RUN DATA VALIDATION BEFORE TRAINING
+    # 1. Data Validation
     validate_data(df)
 
     X = df[['Auto Renew', 'Subscription Count', 'Subscription Term']]
@@ -79,11 +60,11 @@ if __name__ == "__main__":
     signature = infer_signature(X, predictions)
 
     with mlflow.start_run(run_name="Jenkins_MinIO_Training_Run"):
-        # Parameters
+        # Parameters Log
         mlflow.log_param("dataset_source", s3_path)
         mlflow.log_param("features_list", list(X.columns))
 
-        # Metrics
+        # Metrics Log
         tier_counts = predictions.value_counts()
         total_records = len(df)
         
@@ -92,11 +73,17 @@ if __name__ == "__main__":
         mlflow.log_metric("pro_plus_tier_count", float(tier_counts.get("Pro+", 0)))
         mlflow.log_metric("normal_tier_count", float(tier_counts.get("Normal", 0)))
 
-        # Log & Register
+        # 🎯 2. AGAR DATASET ME 'Actual_Tier' HAS TO ACCURACY CALCULATE KAREIN:
+        if 'Actual_Tier' in df.columns:
+            acc = accuracy_score(df['Actual_Tier'], predictions)
+            mlflow.log_metric("model_accuracy", float(acc))
+            print(f"🎯 Model Accuracy Logged: {acc * 100:.2f}%")
+
+        # Log & Register Model
         mlflow.pyfunc.log_model(
             artifact_path="customer_tier_model",
             python_model=model,
             signature=signature,
             registered_model_name="CustomerTieringModel"
         )
-        print("✅ Training complete with Data Validation & Traces captured!")
+        print("✅ Training complete!")
